@@ -1,30 +1,43 @@
 const express = require('express');
-const { Client } = require('pg');
+const { Pool } = require('pg');
 const app = express();
-const port = 5000;
 
-const dbClient = new Client({
-  host: process.env.DB_HOST || 'localhost',
+const PORT = 5000;
+
+const pool = new Pool({
+  host: process.env.DB_HOST || 'db',
   user: process.env.DB_USER || 'postgres',
   password: process.env.DB_PASSWORD || 'postgres',
   database: process.env.DB_NAME || 'testdb',
   port: process.env.DB_PORT || 5432,
 });
 
-dbClient.connect()
-  .then(() => console.log('Connected to Postgres'))
-  .catch((err) => console.error('Failed to connect to Postgres', err));
+// Retry logic for DB connection
+async function connectWithRetry() {
+  let retries = 5;
+  while (retries) {
+    try {
+      await pool.query('SELECT NOW()');
+      console.log('✅ Connected to Postgres successfully!');
+      return;
+    } catch (err) {
+      console.log('❌ Failed to connect to Postgres, retrying in 5 seconds...', err.message);
+      retries -= 1;
+      await new Promise(res => setTimeout(res, 5000));
+    }
+  }
+  process.exit(1);
+}
 
-app.get('/api', async (req, res) => {
+connectWithRetry();
+
+app.get('/', async (req, res) => {
   try {
-    const result = await dbClient.query('SELECT NOW() AS time');
-    res.send(`Hello from Express + Postgres! Server time: ${result.rows[0].time}`);
+    const result = await pool.query('SELECT NOW()');
+    res.send(`Hello from Express + Postgres! Server time: ${result.rows[0].now}`);
   } catch (err) {
-    console.error('DB query error:', err);
-    res.status(500).send('Database error');
+    res.status(500).send('Error connecting to database');
   }
 });
 
-app.listen(port, () => {
-  console.log(`Backend listening at http://localhost:${port}`);
-});
+app.listen(PORT, () => console.log(`Backend listening at http://localhost:${PORT}`));
